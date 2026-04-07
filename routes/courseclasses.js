@@ -7,6 +7,49 @@ let rooms = require('../utils/rooms')
 let { VALID_SLOTS, DAYS_OF_WEEK, isValidSlot, isOverlap } = require('../utils/schedules')
 const { isValidObjectId, parsePagination } = require('../utils/queryHelper')
 
+function normalizeSchedule(rawSchedule) {
+  return {
+    dayOfWeek: parseInt(rawSchedule.dayOfWeek),
+    startPeriod: parseInt(rawSchedule.startPeriod),
+    endPeriod: parseInt(rawSchedule.endPeriod)
+  }
+}
+
+async function hasTeacherConflict(params) {
+  let teacherClasses = await courseClassModel.find({
+    _id: params.excludeId ? { $ne: params.excludeId } : { $exists: true },
+    semester: params.semester,
+    teacher: params.teacher,
+    'schedule.dayOfWeek': params.schedule.dayOfWeek,
+    isDeleted: false
+  })
+  for (let i = 0; i < teacherClasses.length; i++) {
+    let cc = teacherClasses[i]
+    if (isOverlap(cc.schedule.startPeriod, cc.schedule.endPeriod, params.schedule.startPeriod, params.schedule.endPeriod)) {
+      return cc
+    }
+  }
+  return null
+}
+
+async function hasRoomConflict(params) {
+  if (!params.room) return null
+  let roomClasses = await courseClassModel.find({
+    _id: params.excludeId ? { $ne: params.excludeId } : { $exists: true },
+    semester: params.semester,
+    room: params.room,
+    'schedule.dayOfWeek': params.schedule.dayOfWeek,
+    isDeleted: false
+  })
+  for (let i = 0; i < roomClasses.length; i++) {
+    let cc = roomClasses[i]
+    if (isOverlap(cc.schedule.startPeriod, cc.schedule.endPeriod, params.schedule.startPeriod, params.schedule.endPeriod)) {
+      return cc
+    }
+  }
+  return null
+}
+
 router.get('/', async function (req, res, next) {
   let queries = req.query;
   let { page, limit, skip } = parsePagination(queries)
@@ -164,44 +207,35 @@ router.post('/', checkLogin, checkRole("ADMIN"), async function (req, res) {
     if (!req.body.schedule || !req.body.schedule.dayOfWeek || !req.body.schedule.startPeriod || !req.body.schedule.endPeriod) {
       return res.status(400).send({ message: "schedule (dayOfWeek, startPeriod, endPeriod) la bat buoc" })
     }
-    if (!isValidSlot(req.body.schedule.startPeriod, req.body.schedule.endPeriod)) {
+    let normalizedSchedule = normalizeSchedule(req.body.schedule)
+    if (!isValidSlot(normalizedSchedule.startPeriod, normalizedSchedule.endPeriod)) {
       return res.status(400).send({ message: "Ca hoc khong hop le. Chi chap nhan: 1-3, 4-6, 2-6, 7-11" })
     }
-    if (req.body.schedule.dayOfWeek < 2 || req.body.schedule.dayOfWeek > 7) {
+    if (normalizedSchedule.dayOfWeek < 2 || normalizedSchedule.dayOfWeek > 7) {
       return res.status(400).send({ message: "dayOfWeek chi tu 2 den 7 (Thu 2 - Thu 7)" })
     }
     if (req.body.room && !rooms.includes(req.body.room)) {
       return res.status(400).send({ message: "Phong hoc khong ton tai trong he thong" })
     }
-    let teacherClasses = await courseClassModel.find({
+    let teacherConflict = await hasTeacherConflict({
       semester: req.body.semester,
       teacher: req.body.teacher,
-      'schedule.dayOfWeek': req.body.schedule.dayOfWeek,
-      isDeleted: false
+      schedule: normalizedSchedule
     })
-    for (let i = 0; i < teacherClasses.length; i++) {
-      let cc = teacherClasses[i]
-      if (isOverlap(cc.schedule.startPeriod, cc.schedule.endPeriod, req.body.schedule.startPeriod, req.body.schedule.endPeriod)) {
-        return res.status(400).send({
-          message: "Giao vien bi trung lich day (Thu " + req.body.schedule.dayOfWeek + ", tiet " + cc.schedule.startPeriod + "-" + cc.schedule.endPeriod + ")"
-        })
-      }
-    }
-    if (req.body.room) {
-      let roomClasses = await courseClassModel.find({
-        semester: req.body.semester,
-        room: req.body.room,
-        'schedule.dayOfWeek': req.body.schedule.dayOfWeek,
-        isDeleted: false
+    if (teacherConflict) {
+      return res.status(400).send({
+        message: "Giao vien bi trung lich day (Thu " + normalizedSchedule.dayOfWeek + ", tiet " + teacherConflict.schedule.startPeriod + "-" + teacherConflict.schedule.endPeriod + ")"
       })
-      for (let i = 0; i < roomClasses.length; i++) {
-        let cc = roomClasses[i]
-        if (isOverlap(cc.schedule.startPeriod, cc.schedule.endPeriod, req.body.schedule.startPeriod, req.body.schedule.endPeriod)) {
-          return res.status(400).send({
-            message: "Phong " + req.body.room + " bi trung lich (Thu " + req.body.schedule.dayOfWeek + ", tiet " + cc.schedule.startPeriod + "-" + cc.schedule.endPeriod + ")"
-          })
-        }
-      }
+    }
+    let roomConflict = await hasRoomConflict({
+      semester: req.body.semester,
+      room: req.body.room,
+      schedule: normalizedSchedule
+    })
+    if (roomConflict) {
+      return res.status(400).send({
+        message: "Phong " + req.body.room + " bi trung lich (Thu " + normalizedSchedule.dayOfWeek + ", tiet " + roomConflict.schedule.startPeriod + "-" + roomConflict.schedule.endPeriod + ")"
+      })
     }
     let newItem = new courseClassModel({
       semester: req.body.semester,
@@ -209,7 +243,7 @@ router.post('/', checkLogin, checkRole("ADMIN"), async function (req, res) {
       teacher: req.body.teacher,
       maxStudents: req.body.maxStudents,
       room: req.body.room,
-      schedule: req.body.schedule
+      schedule: normalizedSchedule
     })
     await newItem.save()
     await newItem.populate('semester')
@@ -235,7 +269,7 @@ router.put('/:id', checkLogin, checkRole("ADMIN"), async function (req, res) {
     let semester = req.body.semester || existing.semester
     let teacher = req.body.teacher || existing.teacher
     let room = req.body.room !== undefined ? req.body.room : existing.room
-    let schedule = req.body.schedule || existing.schedule
+    let schedule = req.body.schedule ? normalizeSchedule(req.body.schedule) : existing.schedule
     if (req.body.schedule) {
       if (!schedule.dayOfWeek || !schedule.startPeriod || !schedule.endPeriod) {
         return res.status(400).send({ message: "schedule (dayOfWeek, startPeriod, endPeriod) la bat buoc" })
@@ -250,37 +284,27 @@ router.put('/:id', checkLogin, checkRole("ADMIN"), async function (req, res) {
     if (req.body.room && !rooms.includes(req.body.room)) {
       return res.status(400).send({ message: "Phong hoc khong ton tai trong he thong" })
     }
-    let teacherClasses = await courseClassModel.find({
-      _id: { $ne: id },
+    let teacherConflict = await hasTeacherConflict({
+      excludeId: id,
       semester: semester,
       teacher: teacher,
-      'schedule.dayOfWeek': schedule.dayOfWeek,
-      isDeleted: false
+      schedule: schedule
     })
-    for (let i = 0; i < teacherClasses.length; i++) {
-      let cc = teacherClasses[i]
-      if (isOverlap(cc.schedule.startPeriod, cc.schedule.endPeriod, schedule.startPeriod, schedule.endPeriod)) {
-        return res.status(400).send({
-          message: "Giao vien bi trung lich day (Thu " + schedule.dayOfWeek + ", tiet " + cc.schedule.startPeriod + "-" + cc.schedule.endPeriod + ")"
-        })
-      }
-    }
-    if (room) {
-      let roomClasses = await courseClassModel.find({
-        _id: { $ne: id },
-        semester: semester,
-        room: room,
-        'schedule.dayOfWeek': schedule.dayOfWeek,
-        isDeleted: false
+    if (teacherConflict) {
+      return res.status(400).send({
+        message: "Giao vien bi trung lich day (Thu " + schedule.dayOfWeek + ", tiet " + teacherConflict.schedule.startPeriod + "-" + teacherConflict.schedule.endPeriod + ")"
       })
-      for (let i = 0; i < roomClasses.length; i++) {
-        let cc = roomClasses[i]
-        if (isOverlap(cc.schedule.startPeriod, cc.schedule.endPeriod, schedule.startPeriod, schedule.endPeriod)) {
-          return res.status(400).send({
-            message: "Phong " + room + " bi trung lich (Thu " + schedule.dayOfWeek + ", tiet " + cc.schedule.startPeriod + "-" + cc.schedule.endPeriod + ")"
-          })
-        }
-      }
+    }
+    let roomConflict = await hasRoomConflict({
+      excludeId: id,
+      semester: semester,
+      room: room,
+      schedule: schedule
+    })
+    if (roomConflict) {
+      return res.status(400).send({
+        message: "Phong " + room + " bi trung lich (Thu " + schedule.dayOfWeek + ", tiet " + roomConflict.schedule.startPeriod + "-" + roomConflict.schedule.endPeriod + ")"
+      })
     }
     let result = await courseClassModel.findByIdAndUpdate(id, req.body, { new: true })
     res.send(result)
