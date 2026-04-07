@@ -2,35 +2,16 @@ var express = require('express');
 var router = express.Router();
 let subjectModel = require('../schemas/subjects')
 const { checkLogin, checkRole } = require("../utils/authHandler");
-const { isValidObjectId, parsePagination } = require('../utils/queryHelper')
 
 router.get('/', async function (req, res, next) {
-  let { page, limit, skip } = parsePagination(req.query)
-  let keyword = (req.query.keyword || '').trim()
-  let filter = {
+  let data = await subjectModel.find({
     isDeleted: false
-  }
-  if (keyword) {
-    filter.$or = [
-      { name: { $regex: keyword, $options: 'i' } },
-      { subjectCode: { $regex: keyword, $options: 'i' } }
-    ]
-  }
-  let [data, total] = await Promise.all([
-    subjectModel.find(filter).skip(skip).limit(limit).sort({ createdAt: -1 }),
-    subjectModel.countDocuments(filter)
-  ])
-  res.send({
-    items: data,
-    pagination: { page, limit, total }
   });
+  res.send(data);
 });
 router.get('/:id', async function (req, res, next) {
   try {
     let id = req.params.id;
-    if (!isValidObjectId(id)) {
-      return res.status(400).send({ message: "ID khong hop le" })
-    }
     let result = await subjectModel.find({
       isDeleted: false,
       _id: id

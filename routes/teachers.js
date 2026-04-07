@@ -5,23 +5,10 @@ let userController = require("../controllers/users");
 const { checkLogin, checkRole } = require("../utils/authHandler");
 let mongoose = require('mongoose')
 let courseClassModel = require('../schemas/courseclasses')
-const { isValidObjectId, parsePagination } = require('../utils/queryHelper')
 
 router.get("/", checkLogin, async function (req, res, next) {
-  let { page, limit, skip } = parsePagination(req.query)
-  let keyword = (req.query.keyword || '').trim()
-  let filter = { isDeleted: false }
-  if (keyword) {
-    filter.fullName = { $regex: keyword, $options: 'i' }
-  }
-  let [teachers, total] = await Promise.all([
-    teacherModel.find(filter).populate('user').populate('department').skip(skip).limit(limit).sort({ createdAt: -1 }),
-    teacherModel.countDocuments(filter)
-  ])
-  res.send({
-    items: teachers,
-    pagination: { page, limit, total }
-  });
+  let teachers = await teacherModel.find({ isDeleted: false }).populate('user').populate('department');
+  res.send(teachers);
 });
 router.get("/trash", checkLogin, checkRole("ADMIN"), async function (req, res, next) {
   let teachers = await teacherModel.find({ isDeleted: true }).populate('user').populate('department');
@@ -47,9 +34,6 @@ router.put("/:id/restore", checkLogin, checkRole("ADMIN"), async function (req, 
 });
 router.get("/:id", async function (req, res, next) {
   try {
-    if (!isValidObjectId(req.params.id)) {
-      return res.status(400).send({ message: "id khong hop le" });
-    }
     let result = await teacherModel.find({ _id: req.params.id, isDeleted: false })
     if (result.length > 0) {
       await result[0].populate('user')
