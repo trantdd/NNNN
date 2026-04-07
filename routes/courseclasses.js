@@ -3,6 +3,7 @@ var router = express.Router();
 let courseClassModel = require('../schemas/courseclasses')
 const { checkLogin, checkRole } = require("../utils/authHandler");
 let teacherModel = require('../schemas/teachers')
+let enrollmentModel = require('../schemas/enrollments')
 let rooms = require('../utils/rooms')
 let { VALID_SLOTS, DAYS_OF_WEEK, isValidSlot, isOverlap } = require('../utils/schedules')
 const { isValidObjectId, parsePagination } = require('../utils/queryHelper')
@@ -317,11 +318,23 @@ router.put('/:id', checkLogin, checkRole("ADMIN"), async function (req, res) {
 router.delete('/:id', checkLogin, checkRole("ADMIN"), async function (req, res) {
   try {
     let id = req.params.id;
+    if (!isValidObjectId(id)) {
+      return res.status(400).send({ message: "ID khong hop le" })
+    }
     let result = await courseClassModel.findOne({
       isDeleted: false,
       _id: id
     });
     if (result) {
+      let hasEnrollment = await enrollmentModel.findOne({
+        courseClass: id,
+        isDeleted: false
+      })
+      if (hasEnrollment) {
+        return res.status(400).send({
+          message: "Khong the xoa lop hoc phan da co sinh vien dang ky"
+        })
+      }
       result.isDeleted = true
       await result.save();
       res.send(result)
