@@ -30,4 +30,6 @@ let teacherSchema = mongoose.Schema({
 }, {
     timestamps: true
 })
+teacherSchema.index({ isDeleted: 1, department: 1, fullName: 1 })
+teacherSchema.index({ email: 1 })
 module.exports = new mongoose.model('teacher', teacherSchema)
