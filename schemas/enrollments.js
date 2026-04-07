@@ -17,8 +17,4 @@ let enrollmentSchema = mongoose.Schema({
 }, {
     timestamps: true
 })
-enrollmentSchema.index(
-    { student: 1, courseClass: 1, isDeleted: 1 },
-    { unique: true, partialFilterExpression: { isDeleted: false } }
-)
 module.exports = new mongoose.model('enrollment', enrollmentSchema)
