@@ -7,7 +7,6 @@ let studentModel = require('../schemas/students')
 let gradeModel = require('../schemas/grades')
 let mongoose = require('mongoose')
 let { isOverlap } = require('../utils/schedules')
-const { isValidObjectId } = require('../utils/queryHelper')
 
 router.get('/', checkLogin, async function (req, res, next) {
   try {
@@ -34,9 +33,6 @@ router.get('/', checkLogin, async function (req, res, next) {
 });
 router.get('/courseclass/:courseClassId', checkLogin, async function (req, res, next) {
   try {
-    if (!isValidObjectId(req.params.courseClassId)) {
-      return res.status(400).send({ message: "courseClassId khong hop le" })
-    }
     let enrollments = await enrollmentModel.find({
       courseClass: req.params.courseClassId,
       isDeleted: false
@@ -50,11 +46,6 @@ router.post('/register', checkLogin, checkRole("STUDENT"), async function (req, 
   let session = await mongoose.startSession();
   session.startTransaction()
   try {
-    if (!isValidObjectId(req.body.courseClassId)) {
-      await session.abortTransaction()
-      session.endSession()
-      return res.status(400).send({ message: "courseClassId khong hop le" })
-    }
     let student = await studentModel.findOne({ user: req.user._id, isDeleted: false })
     if (!student) {
       await session.abortTransaction()
@@ -134,56 +125,6 @@ router.post('/register', checkLogin, checkRole("STUDENT"), async function (req, 
     await session.commitTransaction()
     session.endSession()
     res.send(newEnrollment)
-  } catch (error) {
-    await session.abortTransaction()
-    session.endSession()
-    res.status(400).send({ message: error.message })
-  }
-})
-
-router.post('/unregister', checkLogin, checkRole("STUDENT"), async function (req, res, next) {
-  let session = await mongoose.startSession();
-  session.startTransaction()
-  try {
-    if (!isValidObjectId(req.body.courseClassId)) {
-      await session.abortTransaction()
-      session.endSession()
-      return res.status(400).send({ message: "courseClassId khong hop le" })
-    }
-    let student = await studentModel.findOne({ user: req.user._id, isDeleted: false })
-    if (!student) {
-      await session.abortTransaction()
-      session.endSession()
-      return res.status(404).send({ message: "student profile khong ton tai" })
-    }
-    let enrollment = await enrollmentModel.findOne({
-      student: student._id,
-      courseClass: req.body.courseClassId,
-      isDeleted: false
-    })
-    if (!enrollment) {
-      await session.abortTransaction()
-      session.endSession()
-      return res.status(404).send({ message: "Khong tim thay dang ky hoc phan" })
-    }
-    enrollment.isDeleted = true
-    await enrollment.save({ session })
-
-    await gradeModel.findOneAndUpdate(
-      { enrollment: enrollment._id, isDeleted: false },
-      { isDeleted: true },
-      { session: session }
-    )
-
-    await courseClassModel.findOneAndUpdate(
-      { _id: req.body.courseClassId, currentStudents: { $gt: 0 } },
-      { $inc: { currentStudents: -1 } },
-      { session: session }
-    )
-
-    await session.commitTransaction()
-    session.endSession()
-    res.send({ message: "Huy dang ky thanh cong" })
   } catch (error) {
     await session.abortTransaction()
     session.endSession()
