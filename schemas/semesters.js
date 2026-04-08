@@ -20,4 +20,6 @@ let semesterSchema = mongoose.Schema({
 }, {
     timestamps: true
 })
+semesterSchema.index({ isDeleted: 1, startDate: -1 })
+semesterSchema.index({ name: 'text' })
 module.exports = new mongoose.model('semester', semesterSchema)
